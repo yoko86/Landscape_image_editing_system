@@ -129,12 +129,15 @@
   color: #355364;
 }
 
-.word-input {
-  width: 180px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  margin-top: 6px;
+.progress-chip {
+  display: inline-block;
+  border: 1px solid #6ca7c2;
+  color: #0f4158;
+  background: #e8f6fc;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .candidate-grid {
@@ -184,9 +187,29 @@
   font-weight: 700;
 }
 
+.tuning-buttons button {
+  flex: 1 1 calc(50% - 8px);
+}
+
 .word-buttons button.active {
   background: #0c2f40;
   color: #ffffff;
+}
+
+.tuning-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.save-btn {
+  border: 1px solid #0f3f16;
+  background: #efffee;
+  color: #0f3f16;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .json-box {
@@ -234,7 +257,7 @@
     align-items: stretch;
   }
 
-  .word-input {
-    width: 100%;
+  .tuning-controls {
+    flex-direction: column;
   }
 }

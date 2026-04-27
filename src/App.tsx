@@ -8,15 +8,19 @@ type FilterParams = {
   v_w: number
 }
 
-type SavedWord = {
-  word: string
-  params: FilterParams
-}
-
 type Candidate = {
   id: string
   params: FilterParams
   previewUrl: string
+}
+
+type WordKey = 'clear' | 'soft' | 'deep' | 'retro'
+
+type WordDefinition = {
+  key: WordKey
+  label: string
+  saveWord: string
+  delta: FilterParams
 }
 
 type HSV = {
@@ -28,6 +32,33 @@ type HSV = {
 const GRID_SIZE = 5
 const PATCH_ALPHA = 85 / 255
 const INITIAL_HUES = [180, -90, -45, 0, 45, 90]
+
+const WORD_DEFINITIONS: WordDefinition[] = [
+  {
+    key: 'clear',
+    label: 'すっきりした',
+    saveWord: 'すっきり',
+    delta: { h_w: 0, s_w: 0.2, v_w: 0.2 },
+  },
+  {
+    key: 'soft',
+    label: 'ふわっとした',
+    saveWord: 'ふわっと',
+    delta: { h_w: 0, s_w: -0.2, v_w: 0.3 },
+  },
+  {
+    key: 'deep',
+    label: '深みがある',
+    saveWord: '深み',
+    delta: { h_w: 0, s_w: 0.1, v_w: -0.3 },
+  },
+  {
+    key: 'retro',
+    label: 'レトロな',
+    saveWord: 'レトロ',
+    delta: { h_w: 20, s_w: -0.1, v_w: 0 },
+  },
+]
 
 const zeroParams: FilterParams = { h_w: 0, s_w: 0, v_w: 0 }
 
@@ -169,20 +200,16 @@ function buildPreviewDataUrl(image: HTMLImageElement, params: FilterParams): str
   return canvas.toDataURL('image/png')
 }
 
-function randomInRange(min: number, max: number): number {
-  return min + Math.random() * (max - min)
-}
-
-function nearlySameParams(a: FilterParams, b: FilterParams): boolean {
-  return (
-    Math.abs(a.h_w - b.h_w) < 1e-6 &&
-    Math.abs(a.s_w - b.s_w) < 1e-6 &&
-    Math.abs(a.v_w - b.v_w) < 1e-6
-  )
-}
-
 function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function applyDelta(base: FilterParams, delta: FilterParams): FilterParams {
+  return {
+    h_w: clamp(toSignedHueRange(base.h_w + delta.h_w), -180, 180),
+    s_w: clamp(base.s_w + delta.s_w, -1, 1),
+    v_w: clamp(base.v_w + delta.v_w, -1, 1),
+  }
 }
 
 function App() {
@@ -192,26 +219,34 @@ function App() {
   const [leftParams, setLeftParams] = useState<FilterParams>(zeroParams)
   const [leftPreviewUrl, setLeftPreviewUrl] = useState<string>('')
 
-  const [phase, setPhase] = useState<'tuning' | 'edit'>('tuning')
+  const [phase, setPhase] = useState<'initial-select' | 'word-tuning' | 'edit'>(
+    'initial-select',
+  )
   const [candidates, setCandidates] = useState<Candidate[]>([])
-  const [bestParams, setBestParams] = useState<FilterParams | null>(null)
-  const [generation, setGeneration] = useState(1)
-  const [wordName, setWordName] = useState('レトロな')
+  const [baseParams, setBaseParams] = useState<FilterParams | null>(null)
+  const [currentTuningParams, setCurrentTuningParams] = useState<FilterParams | null>(
+    null,
+  )
+  const [tuningWordIndex, setTuningWordIndex] = useState(0)
 
-  const [savedWords, setSavedWords] = useState<SavedWord[]>([])
-  const [appliedWordIndex, setAppliedWordIndex] = useState<number>(-1)
+  const [learnedByWord, setLearnedByWord] = useState<Record<WordKey, FilterParams | null>>({
+    clear: null,
+    soft: null,
+    deep: null,
+    retro: null,
+  })
+  const [appliedWordKey, setAppliedWordKey] = useState<WordKey>('clear')
   const [rightPreviewUrl, setRightPreviewUrl] = useState<string>('')
 
   const [statusText, setStatusText] = useState(
     '画像をアップロードすると比較を開始できます。',
   )
 
-  const appliedParams = useMemo(() => {
-    if (appliedWordIndex < 0 || appliedWordIndex >= savedWords.length) {
-      return null
-    }
-    return savedWords[appliedWordIndex].params
-  }, [appliedWordIndex, savedWords])
+  const rightDisplayParams = useMemo(() => {
+    if (phase === 'word-tuning') return currentTuningParams
+    if (phase === 'edit') return learnedByWord[appliedWordKey]
+    return null
+  }, [appliedWordKey, currentTuningParams, learnedByWord, phase])
 
   useEffect(() => {
     if (!originalUrl) {
@@ -235,27 +270,28 @@ function App() {
   }, [leftParams, sourceImage])
 
   useEffect(() => {
-    if (!sourceImage || !appliedParams) {
+    if (!sourceImage || !rightDisplayParams) {
       setRightPreviewUrl('')
       return
     }
-    setRightPreviewUrl(buildPreviewDataUrl(sourceImage, appliedParams))
-  }, [appliedParams, sourceImage])
+    setRightPreviewUrl(buildPreviewDataUrl(sourceImage, rightDisplayParams))
+  }, [rightDisplayParams, sourceImage])
 
   useEffect(() => {
     if (!sourceImage) {
       setCandidates([])
-      setPhase('tuning')
-      setBestParams(null)
-      setGeneration(1)
+      setPhase('initial-select')
+      setBaseParams(null)
+      setCurrentTuningParams(null)
+      setTuningWordIndex(0)
       return
     }
 
     const initialCandidates: Candidate[] = INITIAL_HUES.map((hue) => {
       const params: FilterParams = {
         h_w: hue,
-        s_w: randomInRange(-1, 1),
-        v_w: randomInRange(-1, 1),
+        s_w: 0,
+        v_w: 0,
       }
       return {
         id: makeId(),
@@ -265,13 +301,14 @@ function App() {
     })
 
     setCandidates(initialCandidates)
-    setPhase('tuning')
-    setGeneration(1)
-    setBestParams(null)
-    setSavedWords([])
-    setAppliedWordIndex(-1)
+    setPhase('initial-select')
+    setBaseParams(null)
+    setCurrentTuningParams(null)
+    setTuningWordIndex(0)
+    setLearnedByWord({ clear: null, soft: null, deep: null, retro: null })
+    setAppliedWordKey('clear')
     setRightPreviewUrl('')
-    setStatusText('フェーズ1: 6枚から最も好みの画像を選択してください。')
+    setStatusText('ステップA: 6枚から好みの傾向を1枚選択してください。')
   }, [sourceImage])
 
   const handleUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -296,63 +333,93 @@ function App() {
     setLeftParams(zeroParams)
     setLeftPreviewUrl('')
     setCandidates([])
-    setBestParams(null)
-    setGeneration(1)
-    setSavedWords([])
-    setAppliedWordIndex(-1)
+    setBaseParams(null)
+    setCurrentTuningParams(null)
+    setTuningWordIndex(0)
+    setLearnedByWord({ clear: null, soft: null, deep: null, retro: null })
+    setAppliedWordKey('clear')
     setRightPreviewUrl('')
-    setPhase('tuning')
+    setPhase('initial-select')
     setStatusText('画像をアップロードすると比較を開始できます。')
   }
 
-  const generateNextCandidates = (selected: FilterParams) => {
-    if (!sourceImage) return
+  const handleCandidateSelect = (candidate: Candidate) => {
+    if (phase !== 'initial-select') return
 
-    const nextParams: FilterParams[] = [selected]
-
-    for (let i = 0; i < 5; i += 1) {
-      const hDelta = Math.random() > 0.5 ? 5 : -5
-      const sDelta = Math.random() > 0.5 ? 0.05 : -0.05
-      const vDelta = Math.random() > 0.5 ? 0.05 : -0.05
-
-      nextParams.push({
-        h_w: clamp(toSignedHueRange(selected.h_w + hDelta), -180, 180),
-        s_w: clamp(selected.s_w + sDelta, -1, 1),
-        v_w: clamp(selected.v_w + vDelta, -1, 1),
-      })
-    }
-
-    const nextCandidates: Candidate[] = nextParams.map((params) => ({
-      id: makeId(),
-      params,
-      previewUrl: buildPreviewDataUrl(sourceImage, params),
-    }))
-
-    setCandidates(nextCandidates)
-    setGeneration((prev) => prev + 1)
+    setBaseParams(candidate.params)
+    setCurrentTuningParams(candidate.params)
+    setTuningWordIndex(0)
+    setPhase('word-tuning')
+    setStatusText(
+      'ステップB: 4つのワードボタンで調整し、「この設定を保存」で次ワードへ進んでください。',
+    )
   }
 
-  const handleCandidateSelect = (candidate: Candidate) => {
-    if (!sourceImage || phase !== 'tuning') return
+  const handleWordDelta = (definition: WordDefinition) => {
+    if (phase !== 'word-tuning' || !currentTuningParams) return
+    setCurrentTuningParams(applyDelta(currentTuningParams, definition.delta))
+  }
 
-    if (bestParams && nearlySameParams(candidate.params, bestParams)) {
-      const finalWord = wordName.trim() || `ワード${savedWords.length + 1}`
-      const newWord: SavedWord = { word: finalWord, params: candidate.params }
+  const handleSaveCurrentWord = () => {
+    if (!baseParams || !currentTuningParams || phase !== 'word-tuning') return
 
-      setSavedWords((prev) => [...prev, newWord])
-      setAppliedWordIndex(savedWords.length)
+    const currentDefinition = WORD_DEFINITIONS[tuningWordIndex]
+    setLearnedByWord((prev) => ({
+      ...prev,
+      [currentDefinition.key]: currentTuningParams,
+    }))
+
+    if (tuningWordIndex >= WORD_DEFINITIONS.length - 1) {
       setPhase('edit')
+      setAppliedWordKey('clear')
       setStatusText(
-        `収束しました。${finalWord} を保存し、フェーズ2に移行しました。`,
+        '4ワードの学習が完了しました。フェーズ3でワードボタン編集を行えます。',
       )
       return
     }
 
-    setBestParams(candidate.params)
-    generateNextCandidates(candidate.params)
+    const nextIndex = tuningWordIndex + 1
+    setTuningWordIndex(nextIndex)
+    setCurrentTuningParams(baseParams)
     setStatusText(
-      '次世代を生成しました。前回と同じ画像を再度選ぶとチューニングを終了します。',
+      `「${WORD_DEFINITIONS[nextIndex].label}」のチューニングに進みました。`,
     )
+  }
+
+  const currentWordDefinition = WORD_DEFINITIONS[tuningWordIndex]
+
+  const tuningProgress = `${tuningWordIndex + 1}/${WORD_DEFINITIONS.length}`
+
+  const selectedLearnedWord = WORD_DEFINITIONS.find(
+    (definition) => definition.key === appliedWordKey,
+  )
+
+  const selectedLearnedParams = learnedByWord[appliedWordKey]
+
+  const restartTuning = () => {
+    if (!sourceImage) return
+
+    const initialCandidates: Candidate[] = INITIAL_HUES.map((hue) => {
+      const params: FilterParams = {
+        h_w: hue,
+        s_w: 0,
+        v_w: 0,
+      }
+      return {
+        id: makeId(),
+        params,
+        previewUrl: buildPreviewDataUrl(sourceImage, params),
+      }
+    })
+
+    setCandidates(initialCandidates)
+    setPhase('initial-select')
+    setBaseParams(null)
+    setCurrentTuningParams(null)
+    setTuningWordIndex(0)
+    setLearnedByWord({ clear: null, soft: null, deep: null, retro: null })
+    setAppliedWordKey('clear')
+    setStatusText('ステップA: 6枚から好みの傾向を1枚選択してください。')
   }
 
   return (
@@ -427,19 +494,10 @@ function App() {
         <section className="panel right-panel">
           <h2>提案手法（対話型進化計算 / ITS）</h2>
 
-          {phase === 'tuning' ? (
+          {phase === 'initial-select' ? (
             <>
               <div className="phase-head">
-                <p>フェーズ1（チューニング） 世代: {generation}</p>
-                <label>
-                  保存ワード名
-                  <input
-                    className="word-input"
-                    value={wordName}
-                    onChange={(e) => setWordName(e.target.value)}
-                    placeholder="例: レトロな"
-                  />
-                </label>
+                <p>ステップA（初期選択）: 6択から1枚選択</p>
               </div>
 
               <div className="candidate-grid">
@@ -460,61 +518,104 @@ function App() {
                 ))}
               </div>
             </>
-          ) : (
+          ) : phase === 'word-tuning' ? (
             <>
-              <p className="phase2-title">フェーズ2（編集）: 感性ワードを適用</p>
-              <div className="word-buttons">
-                {savedWords.map((entry, idx) => (
+              <div className="phase-head">
+                <p>
+                  ステップB（ワード・チューニング） 対象: {currentWordDefinition.label}
+                </p>
+                <span className="progress-chip">進捗 {tuningProgress}</span>
+              </div>
+
+              <div className="preview-wrap large">
+                {rightPreviewUrl ? (
+                  <img src={rightPreviewUrl} alt="ワードチューニングプレビュー" />
+                ) : (
+                  <p className="placeholder">基準画像を選択してください</p>
+                )}
+              </div>
+
+              <div className="word-buttons tuning-buttons">
+                {WORD_DEFINITIONS.map((definition) => (
                   <button
                     type="button"
-                    key={`${entry.word}-${idx}`}
-                    className={idx === appliedWordIndex ? 'active' : ''}
-                    onClick={() => setAppliedWordIndex(idx)}
+                    key={definition.key}
+                    onClick={() => handleWordDelta(definition)}
                   >
-                    {entry.word}
+                    {definition.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="tuning-controls">
+                <button
+                  type="button"
+                  className="reset-btn"
+                  onClick={() => setCurrentTuningParams(baseParams)}
+                >
+                  現在ワードを基準からやり直す
+                </button>
+                <button type="button" className="save-btn" onClick={handleSaveCurrentWord}>
+                  この設定を保存
+                </button>
+              </div>
+
+              {currentTuningParams ? (
+                <pre className="json-box">
+{JSON.stringify(
+  {
+    word: currentWordDefinition.saveWord,
+    params: currentTuningParams,
+  },
+  null,
+  2,
+)}
+                </pre>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p className="phase2-title">ステップC（画像編集）: 学習済み4ワードで編集</p>
+              <div className="word-buttons">
+                {WORD_DEFINITIONS.map((definition) => (
+                  <button
+                    type="button"
+                    key={definition.key}
+                    className={definition.key === appliedWordKey ? 'active' : ''}
+                    onClick={() => setAppliedWordKey(definition.key)}
+                  >
+                    {definition.saveWord}
                   </button>
                 ))}
               </div>
 
               <div className="preview-wrap large">
                 {rightPreviewUrl ? (
-                  <img src={rightPreviewUrl} alt="提案手法プレビュー" />
+                  <img src={rightPreviewUrl} alt="提案手法編集プレビュー" />
                 ) : (
                   <p className="placeholder">ワードを選択してください</p>
                 )}
               </div>
 
-              {appliedWordIndex >= 0 && savedWords[appliedWordIndex] ? (
+              {selectedLearnedWord && selectedLearnedParams ? (
                 <pre className="json-box">
-{JSON.stringify(savedWords[appliedWordIndex], null, 2)}
+{JSON.stringify(
+  {
+    word: selectedLearnedWord.saveWord,
+    params: selectedLearnedParams,
+  },
+  null,
+  2,
+)}
                 </pre>
               ) : null}
 
               <button
                 type="button"
                 className="reset-btn tune-again"
-                onClick={() => {
-                  setPhase('tuning')
-                  setBestParams(null)
-                  if (sourceImage) {
-                    const initialCandidates: Candidate[] = INITIAL_HUES.map((hue) => {
-                      const params: FilterParams = {
-                        h_w: hue,
-                        s_w: randomInRange(-1, 1),
-                        v_w: randomInRange(-1, 1),
-                      }
-                      return {
-                        id: makeId(),
-                        params,
-                        previewUrl: buildPreviewDataUrl(sourceImage, params),
-                      }
-                    })
-                    setCandidates(initialCandidates)
-                    setGeneration(1)
-                  }
-                }}
+                onClick={restartTuning}
               >
-                もう一度チューニングする
+                初期6択から再チューニングする
               </button>
             </>
           )}
