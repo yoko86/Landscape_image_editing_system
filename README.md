@@ -1,73 +1,113 @@
-# React + TypeScript + Vite
+# 感性画像編集システム（比較検証プラットフォーム）
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ユーザの感性学習を行う提案手法（右側）と、手動調整の既存手法（左側）を同時に比較できるWebアプリです。
 
-Currently, two official plugins are available:
+## 技術スタック
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React
+- TypeScript
+- Vite
+- Canvas API
 
-## React Compiler
+## 起動方法
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. プロジェクトへ移動
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+cd "c:\Users\hinat\OneDrive - 埼玉大学\アプリ開発関係\kansei-compare"
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2. 依存関係のインストール（初回のみ）
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```powershell
+npm install
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+3. 開発サーバー起動
+
+```powershell
+npm run dev
+```
+
+4. ブラウザでアクセス
+
+```text
+http://localhost:5173/
+```
+
+## 画面構成
+
+- ヘッダー
+  - 画像アップロード
+  - リセット
+- 左側: 既存手法（手動）
+  - 大プレビュー
+  - Hue, Sat, Val スライダ
+- 右側: 提案手法（対話型）
+  - ステップA: 6択プレビュー
+  - ステップB: 4ワードで反復チューニング
+  - ステップC: 学習済み4ワードで編集
+
+## システムフロー
+
+1. 初期化フェーズ
+   - 元画像をアップロード
+
+2. チューニングフェーズ（右側）
+   - ステップA（初期選択）
+     - 6枚の候補から1枚を選択
+     - 初期候補パラメータ:
+       - h_w: {180, -90, -45, 0, 45, 90}
+       - s_w: 0.0
+       - v_w: 0.0
+   - ステップB（ワード・チューニング）
+     - ワードボタンをクリックするたびに、現在パラメータへ加算
+     - 変化後が新しい基準となり、連続で調整可能
+     - 納得したら「この設定を保存」で次ワードへ
+     - 4ワードを順番に学習:
+       - すっきりした
+       - ふわっとした
+       - 深みがある
+       - レトロな
+
+3. 画像編集フェーズ（右側）
+   - 学習済み4ボタン（すっきり、ふわっと、深み、レトロ）で画像を編集
+
+## ワードごとのHSV変化量
+
+- すっきりした: s +0.2, v +0.2
+- ふわっとした: s -0.2, v +0.3
+- 深みがある: s +0.1, v -0.3
+- レトロな: h +20, s -0.1
+
+## 画像処理ロジック（左右共通）
+
+- 画像を 5x5 の25エリアへ分割
+- 各エリアのRGB平均値を算出
+- 平均色をHSV変換し、h_w/s_w/v_w を加算
+- RGBへ戻して透明度 85/255 のカラーパッチとして重畳
+
+## スライダ範囲（左側）
+
+- Hue: -180 〜 180
+- Sat: -1.0 〜 1.0
+- Val: -1.0 〜 1.0
+
+## 保存データ形式（表示例）
+
+```json
+{
+  "word": "レトロ",
+  "params": {
+    "h_w": 25,
+    "s_w": -0.4,
+    "v_w": 0.1
+  }
+}
+```
+
+## ビルド
+
+```powershell
+npm run build
 ```
