@@ -13,10 +13,6 @@
 
 1. プロジェクトへ移動
 
-```powershell
-cd "c:\Users\hinat\OneDrive - 埼玉大学\アプリ開発関係\kansei-compare"
-```
-
 2. 依存関係のインストール（初回のみ）
 
 ```powershell
