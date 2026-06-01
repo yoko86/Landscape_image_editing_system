@@ -14,7 +14,7 @@
 1. プロジェクトへ移動
 
 ```powershell
-cd "c:\Users\hinat\OneDrive - 埼玉大学\アプリ開発関係\kansei-compare"
+cd "c:\Users\hinat\OneDrive - 埼玉大学\アプリ開発関係\kansei-compare\myenv\Scripts\Activate"
 ```
 
 2. 依存関係のインストール（初回のみ）
