@@ -90,6 +90,10 @@
   min-height: 280px;
 }
 
+.preview-wrap.secondary {
+  min-height: 180px;
+}
+
 .preview-wrap img {
   max-width: 100%;
   max-height: 420px;
@@ -114,6 +118,49 @@
 
 .slider-group input {
   width: 100%;
+}
+
+.apply-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(12, 47, 64, 0.14);
+  display: grid;
+  gap: 10px;
+}
+
+.apply-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.apply-head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #1e3b4f;
+}
+
+.mini-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #0c2f40;
+  border-radius: 10px;
+  background: #f5fcff;
+  color: #0c2f40;
+  font-weight: 700;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.mini-upload-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .phase-head {
@@ -236,5 +283,10 @@
 
   .word-input {
     width: 100%;
+  }
+
+  .apply-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

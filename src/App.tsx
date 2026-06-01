@@ -28,6 +28,14 @@ type HSV = {
 const GRID_SIZE = 5
 const PATCH_ALPHA = 85 / 255
 const INITIAL_HUES = [180, -90, -45, 0, 45, 90]
+const NEARBY_CANDIDATE_RANGES = [
+  { sMin: -1.0, sMax: -0.5, vMin: -1.0, vMax: -0.5 },
+  { sMin: -0.5, sMax: 0.3, vMin: -0.5, vMax: 0.3 },
+  { sMin: -0.3, sMax: 0.0, vMin: -0.3, vMax: 0.0 },
+  { sMin: 0.0, sMax: 0.3, vMin: 0.0, vMax: 0.3 },
+  { sMin: 0.3, sMax: 0.5, vMin: 0.3, vMax: 0.5 },
+  { sMin: 0.5, sMax: 1.0, vMin: 0.5, vMax: 1.0 },
+]
 
 const zeroParams: FilterParams = { h_w: 0, s_w: 0, v_w: 0 }
 
@@ -173,6 +181,17 @@ function randomInRange(min: number, max: number): number {
   return min + Math.random() * (max - min)
 }
 
+function createNearbyCandidateParams(selected: FilterParams): FilterParams[] {
+  return [
+    selected,
+    ...NEARBY_CANDIDATE_RANGES.slice(0, 5).map((range) => ({
+      h_w: clamp(toSignedHueRange(selected.h_w + randomInRange(-5, 5)), -180, 180),
+      s_w: clamp(randomInRange(range.sMin, range.sMax), -1, 1),
+      v_w: clamp(randomInRange(range.vMin, range.vMax), -1, 1),
+    })),
+  ]
+}
+
 function nearlySameParams(a: FilterParams, b: FilterParams): boolean {
   return (
     Math.abs(a.h_w - b.h_w) < 1e-6 &&
@@ -191,6 +210,9 @@ function App() {
 
   const [leftParams, setLeftParams] = useState<FilterParams>(zeroParams)
   const [leftPreviewUrl, setLeftPreviewUrl] = useState<string>('')
+  const [manualApplyUrl, setManualApplyUrl] = useState<string | null>(null)
+  const [manualApplyImage, setManualApplyImage] = useState<HTMLImageElement | null>(null)
+  const [manualApplyPreviewUrl, setManualApplyPreviewUrl] = useState<string>('')
 
   const [phase, setPhase] = useState<'tuning' | 'edit'>('tuning')
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -201,6 +223,9 @@ function App() {
   const [savedWords, setSavedWords] = useState<SavedWord[]>([])
   const [appliedWordIndex, setAppliedWordIndex] = useState<number>(-1)
   const [rightPreviewUrl, setRightPreviewUrl] = useState<string>('')
+  const [proposalApplyUrl, setProposalApplyUrl] = useState<string | null>(null)
+  const [proposalApplyImage, setProposalApplyImage] = useState<HTMLImageElement | null>(null)
+  const [proposalApplyPreviewUrl, setProposalApplyPreviewUrl] = useState<string>('')
 
   const [statusText, setStatusText] = useState(
     '画像をアップロードすると比較を開始できます。',
@@ -233,6 +258,28 @@ function App() {
     }
     setLeftPreviewUrl(buildPreviewDataUrl(sourceImage, leftParams))
   }, [leftParams, sourceImage])
+
+  useEffect(() => {
+    if (!manualApplyUrl) {
+      setManualApplyImage(null)
+      return
+    }
+
+    const img = new Image()
+    img.onload = () => {
+      setManualApplyImage(img)
+    }
+    img.src = manualApplyUrl
+  }, [manualApplyUrl])
+
+  useEffect(() => {
+    if (!manualApplyImage) {
+      setManualApplyPreviewUrl('')
+      return
+    }
+
+    setManualApplyPreviewUrl(buildPreviewDataUrl(manualApplyImage, leftParams))
+  }, [leftParams, manualApplyImage])
 
   useEffect(() => {
     if (!sourceImage || !appliedParams) {
@@ -274,6 +321,28 @@ function App() {
     setStatusText('フェーズ1: 6枚から最も好みの画像を選択してください。')
   }, [sourceImage])
 
+  useEffect(() => {
+    if (!proposalApplyUrl) {
+      setProposalApplyImage(null)
+      return
+    }
+
+    const img = new Image()
+    img.onload = () => {
+      setProposalApplyImage(img)
+    }
+    img.src = proposalApplyUrl
+  }, [proposalApplyUrl])
+
+  useEffect(() => {
+    if (!proposalApplyImage || !appliedParams) {
+      setProposalApplyPreviewUrl('')
+      return
+    }
+
+    setProposalApplyPreviewUrl(buildPreviewDataUrl(proposalApplyImage, appliedParams))
+  }, [appliedParams, proposalApplyImage])
+
   const handleUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -285,6 +354,28 @@ function App() {
     const nextUrl = URL.createObjectURL(file)
     setOriginalUrl(nextUrl)
     setLeftParams(zeroParams)
+  }
+
+  const handleManualApplyUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (manualApplyUrl) {
+      URL.revokeObjectURL(manualApplyUrl)
+    }
+
+    setManualApplyUrl(URL.createObjectURL(file))
+  }
+
+  const handleProposalApplyUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (proposalApplyUrl) {
+      URL.revokeObjectURL(proposalApplyUrl)
+    }
+
+    setProposalApplyUrl(URL.createObjectURL(file))
   }
 
   const resetAll = () => {
@@ -301,6 +392,18 @@ function App() {
     setSavedWords([])
     setAppliedWordIndex(-1)
     setRightPreviewUrl('')
+    if (manualApplyUrl) {
+      URL.revokeObjectURL(manualApplyUrl)
+    }
+    if (proposalApplyUrl) {
+      URL.revokeObjectURL(proposalApplyUrl)
+    }
+    setManualApplyUrl(null)
+    setManualApplyImage(null)
+    setManualApplyPreviewUrl('')
+    setProposalApplyUrl(null)
+    setProposalApplyImage(null)
+    setProposalApplyPreviewUrl('')
     setPhase('tuning')
     setStatusText('画像をアップロードすると比較を開始できます。')
   }
@@ -308,19 +411,7 @@ function App() {
   const generateNextCandidates = (selected: FilterParams) => {
     if (!sourceImage) return
 
-    const nextParams: FilterParams[] = [selected]
-
-    for (let i = 0; i < 5; i += 1) {
-      const hDelta = Math.random() > 0.5 ? 5 : -5
-      const sDelta = Math.random() > 0.5 ? 0.05 : -0.05
-      const vDelta = Math.random() > 0.5 ? 0.05 : -0.05
-
-      nextParams.push({
-        h_w: clamp(toSignedHueRange(selected.h_w + hDelta), -180, 180),
-        s_w: clamp(selected.s_w + sDelta, -1, 1),
-        v_w: clamp(selected.v_w + vDelta, -1, 1),
-      })
-    }
+    const nextParams = createNearbyCandidateParams(selected)
 
     const nextCandidates: Candidate[] = nextParams.map((params) => ({
       id: makeId(),
@@ -372,7 +463,7 @@ function App() {
 
       <main className="split-layout">
         <section className="panel left-panel">
-          <h2>既存手法（手動調整）</h2>
+          <h2>手動調整</h2>
           <div className="preview-wrap large">
             {leftPreviewUrl ? (
               <img src={leftPreviewUrl} alt="既存手法プレビュー" />
@@ -422,15 +513,32 @@ function App() {
               />
             </label>
           </div>
+
+          <div className="apply-section">
+            <div className="apply-head">
+              <h3>別画像に適用</h3>
+              <label className="mini-upload-btn">
+                画像をアップロード
+                <input type="file" accept="image/*" onChange={handleManualApplyUpload} />
+              </label>
+            </div>
+            <div className="preview-wrap secondary">
+              {manualApplyPreviewUrl ? (
+                <img src={manualApplyPreviewUrl} alt="手動調整の別画像プレビュー" />
+              ) : (
+                <p className="placeholder">別の画像をアップロードしてください</p>
+              )}
+            </div>
+          </div>
         </section>
 
         <section className="panel right-panel">
-          <h2>提案手法（対話型進化計算 / ITS）</h2>
+          <h2>提案手法</h2>
 
           {phase === 'tuning' ? (
             <>
               <div className="phase-head">
-                <p>フェーズ1（チューニング） 世代: {generation}</p>
+                <p>チューニングを行うよ / 世代: {generation}</p>
                 <label>
                   保存ワード名
                   <input
@@ -518,6 +626,25 @@ function App() {
               </button>
             </>
           )}
+
+          <div className="apply-section">
+            <div className="apply-head">
+              <h3>別画像に適用</h3>
+              <label className="mini-upload-btn">
+                画像をアップロード
+                <input type="file" accept="image/*" onChange={handleProposalApplyUpload} />
+              </label>
+            </div>
+            <div className="preview-wrap secondary">
+              {proposalApplyPreviewUrl ? (
+                <img src={proposalApplyPreviewUrl} alt="提案手法の別画像プレビュー" />
+              ) : (
+                <p className="placeholder">
+                  {appliedParams ? '別の画像をアップロードしてください' : 'フェーズ2でワードを選択すると適用できます'}
+                </p>
+              )}
+            </div>
+          </div>
         </section>
       </main>
 
