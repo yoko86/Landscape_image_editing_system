@@ -538,16 +538,7 @@ function App() {
           {phase === 'tuning' ? (
             <>
               <div className="phase-head">
-                <p>チューニングを行うよ / 世代: {generation}</p>
-                <label>
-                  保存ワード名
-                  <input
-                    className="word-input"
-                    value={wordName}
-                    onChange={(e) => setWordName(e.target.value)}
-                    placeholder="例: レトロな"
-                  />
-                </label>
+                <p>チューニングを行うよ </p>
               </div>
 
               <div className="candidate-grid">
