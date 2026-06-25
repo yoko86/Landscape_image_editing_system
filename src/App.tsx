@@ -27,7 +27,7 @@ type HSV = {
 
 const GRID_SIZE = 5
 const PATCH_ALPHA = 85 / 255
-const INITIAL_HUES = [180, -90, -45, 0, 45, 90]
+const INITIAL_HUES = [20, 60, 120, 180, -60, -120]
 const NEARBY_CANDIDATE_RANGES = [
   { sMin: -1.0, sMax: -0.5, vMin: -1.0, vMax: -0.5 },
   { sMin: -0.5, sMax: 0.3, vMin: -0.5, vMax: 0.3 },
@@ -118,7 +118,14 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
   return [r, g, b]
 }
 
-function buildPreviewDataUrl(image: HTMLImageElement, params: FilterParams): string {
+function buildPreviewDataUrl(
+  image: HTMLImageElement,
+  params: FilterParams,
+  options?: {
+    fixedSaturation?: number
+    preserveValue?: boolean
+  },
+): string {
   const width = image.naturalWidth
   const height = image.naturalHeight
 
@@ -161,8 +168,14 @@ function buildPreviewDataUrl(image: HTMLImageElement, params: FilterParams): str
 
       const hsv = rgbToHsv(avgR, avgG, avgB)
       const transformedH = wrapHueDegrees(hsv.h + params.h_w)
-      const transformedS = clamp(hsv.s + params.s_w, 0, 1)
-      const transformedV = clamp(hsv.v + params.v_w, 0, 1)
+      const transformedS = clamp(
+        options?.fixedSaturation ?? hsv.s + params.s_w,
+        0,
+        1,
+      )
+      const transformedV = options?.preserveValue
+        ? hsv.v
+        : clamp(hsv.v + params.v_w, 0, 1)
       const [rPatch, gPatch, bPatch] = hsvToRgb(
         transformedH,
         transformedS,
@@ -204,6 +217,25 @@ function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function createInitialCandidates(sourceImage: HTMLImageElement): Candidate[] {
+  return INITIAL_HUES.map((hue) => {
+    const params: FilterParams = {
+      h_w: hue,
+      s_w: 0.8,
+      v_w: 0,
+    }
+
+    return {
+      id: makeId(),
+      params,
+      previewUrl: buildPreviewDataUrl(sourceImage, params, {
+        fixedSaturation: 0.8,
+        preserveValue: true,
+      }),
+    }
+  })
+}
+
 function App() {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null)
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
@@ -217,8 +249,8 @@ function App() {
   const [phase, setPhase] = useState<'tuning' | 'edit'>('tuning')
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [bestParams, setBestParams] = useState<FilterParams | null>(null)
-  const [generation, setGeneration] = useState(1)
-  const [wordName, setWordName] = useState('レトロな')
+  const [, setGeneration] = useState(1)
+  const [wordName] = useState('レトロな')
 
   const [savedWords, setSavedWords] = useState<SavedWord[]>([])
   const [appliedWordIndex, setAppliedWordIndex] = useState<number>(-1)
@@ -298,18 +330,7 @@ function App() {
       return
     }
 
-    const initialCandidates: Candidate[] = INITIAL_HUES.map((hue) => {
-      const params: FilterParams = {
-        h_w: hue,
-        s_w: randomInRange(-1, 1),
-        v_w: randomInRange(-1, 1),
-      }
-      return {
-        id: makeId(),
-        params,
-        previewUrl: buildPreviewDataUrl(sourceImage, params),
-      }
-    })
+    const initialCandidates = createInitialCandidates(sourceImage)
 
     setCandidates(initialCandidates)
     setPhase('tuning')
@@ -596,18 +617,7 @@ function App() {
                   setPhase('tuning')
                   setBestParams(null)
                   if (sourceImage) {
-                    const initialCandidates: Candidate[] = INITIAL_HUES.map((hue) => {
-                      const params: FilterParams = {
-                        h_w: hue,
-                        s_w: randomInRange(-1, 1),
-                        v_w: randomInRange(-1, 1),
-                      }
-                      return {
-                        id: makeId(),
-                        params,
-                        previewUrl: buildPreviewDataUrl(sourceImage, params),
-                      }
-                    })
+                    const initialCandidates = createInitialCandidates(sourceImage)
                     setCandidates(initialCandidates)
                     setGeneration(1)
                   }
