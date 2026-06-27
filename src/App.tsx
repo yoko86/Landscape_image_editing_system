@@ -27,7 +27,8 @@ type HSV = {
 
 const GRID_SIZE = 5
 const PATCH_ALPHA = 85 / 255
-const INITIAL_HUES = [20, 60, 120, 180, -60, -120]
+const INITIAL_HUES_NEW = [180, -90, -45, 0, 45, 90]
+const INITIAL_HUES_OLD = [180, -90, -45, 0, 45, 90]
 const NEARBY_CANDIDATE_RANGES = [
   { sMin: -1.0, sMax: -0.5, vMin: -1.0, vMax: -0.5 },
   { sMin: -0.5, sMax: 0.3, vMin: -0.5, vMax: 0.3 },
@@ -217,8 +218,24 @@ function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function createInitialCandidatesOld(sourceImage: HTMLImageElement): Candidate[] {
+  return INITIAL_HUES_OLD.map((hue) => {
+    const params: FilterParams = {
+      h_w: hue,
+      s_w: randomInRange(-1, 1),
+      v_w: randomInRange(-1, 1),
+    }
+
+    return {
+      id: makeId(),
+      params,
+      previewUrl: buildPreviewDataUrl(sourceImage, params),
+    }
+  })
+}
+
 function createInitialCandidates(sourceImage: HTMLImageElement): Candidate[] {
-  return INITIAL_HUES.map((hue) => {
+  return INITIAL_HUES_NEW.map((hue) => {
     const params: FilterParams = {
       h_w: hue,
       s_w: 0.8,
@@ -248,7 +265,9 @@ function App() {
 
   const [phase, setPhase] = useState<'tuning' | 'edit'>('tuning')
   const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [candidatesOld, setCandidatesOld] = useState<Candidate[]>([])
   const [bestParams, setBestParams] = useState<FilterParams | null>(null)
+  const [bestParamsOld, setBestParamsOld] = useState<FilterParams | null>(null)
   const [, setGeneration] = useState(1)
   const [wordName] = useState('レトロな')
 
@@ -323,18 +342,23 @@ function App() {
 
   useEffect(() => {
     if (!sourceImage) {
+      setCandidatesOld([])
       setCandidates([])
       setPhase('tuning')
+      setBestParamsOld(null)
       setBestParams(null)
       setGeneration(1)
       return
     }
 
+    const initialCandidatesOld = createInitialCandidatesOld(sourceImage)
     const initialCandidates = createInitialCandidates(sourceImage)
 
+    setCandidatesOld(initialCandidatesOld)
     setCandidates(initialCandidates)
     setPhase('tuning')
     setGeneration(1)
+    setBestParamsOld(null)
     setBestParams(null)
     setSavedWords([])
     setAppliedWordIndex(-1)
@@ -407,7 +431,9 @@ function App() {
     setSourceImage(null)
     setLeftParams(zeroParams)
     setLeftPreviewUrl('')
+    setCandidatesOld([])
     setCandidates([])
+    setBestParamsOld(null)
     setBestParams(null)
     setGeneration(1)
     setSavedWords([])
@@ -429,7 +455,22 @@ function App() {
     setStatusText('画像をアップロードすると比較を開始できます。')
   }
 
-  const generateNextCandidates = (selected: FilterParams) => {
+  const generateNextCandidatesOld = (selected: FilterParams) => {
+    if (!sourceImage) return
+
+    const nextParams = createNearbyCandidateParams(selected)
+
+    const nextCandidates: Candidate[] = nextParams.map((params) => ({
+      id: makeId(),
+      params,
+      previewUrl: buildPreviewDataUrl(sourceImage, params),
+    }))
+
+    setCandidatesOld(nextCandidates)
+    setGeneration((prev) => prev + 1)
+  }
+
+  const generateNextCandidatesNew = (selected: FilterParams) => {
     if (!sourceImage) return
 
     const nextParams = createNearbyCandidateParams(selected)
@@ -444,7 +485,32 @@ function App() {
     setGeneration((prev) => prev + 1)
   }
 
-  const handleCandidateSelect = (candidate: Candidate) => {
+  const handleCandidateSelectOld = (candidate: Candidate) => {
+    if (!sourceImage || phase !== 'tuning') return
+
+    if (bestParamsOld && nearlySameParams(candidate.params, bestParamsOld)) {
+      const finalWord = wordName.trim() || `ワード${savedWords.length + 1}`
+      const newWord: SavedWord = { word: finalWord, params: candidate.params }
+
+      setSavedWords((prev) => [...prev, newWord])
+      setAppliedWordIndex(savedWords.length)
+      setPhase('edit')
+      setStatusText(
+        `収束しました。${finalWord} を保存し、フェーズ2に移行しました。`,
+      )
+      return
+    }
+
+    setBestParamsOld(candidate.params)
+    generateNextCandidatesOld(candidate.params)
+    setBestParams(null)
+    setCandidates([])
+    setStatusText(
+      '次世代を生成しました。前回と同じ画像を再度選ぶとチューニングを終了します。',
+    )
+  }
+
+  const handleCandidateSelectNew = (candidate: Candidate) => {
     if (!sourceImage || phase !== 'tuning') return
 
     if (bestParams && nearlySameParams(candidate.params, bestParams)) {
@@ -461,7 +527,9 @@ function App() {
     }
 
     setBestParams(candidate.params)
-    generateNextCandidates(candidate.params)
+    generateNextCandidatesNew(candidate.params)
+    setBestParamsOld(null)
+    setCandidatesOld([])
     setStatusText(
       '次世代を生成しました。前回と同じ画像を再度選ぶとチューニングを終了します。',
     )
@@ -562,22 +630,46 @@ function App() {
                 <p>チューニングを行うよ </p>
               </div>
 
-              <div className="candidate-grid">
-                {candidates.map((candidate) => (
-                  <button
-                    type="button"
-                    className="candidate-card"
-                    key={candidate.id}
-                    onClick={() => handleCandidateSelect(candidate)}
-                  >
-                    <img src={candidate.previewUrl} alt="ITS候補" />
-                    <span>
-                      h:{candidate.params.h_w.toFixed(0)} / s:{' '}
-                      {candidate.params.s_w.toFixed(2)} / v:{' '}
-                      {candidate.params.v_w.toFixed(2)}
-                    </span>
-                  </button>
-                ))}
+              <div>
+                <h3>提案手法</h3>
+                <div className="candidate-grid">
+                  {candidatesOld.map((candidate) => (
+                    <button
+                      type="button"
+                      className="candidate-card"
+                      key={candidate.id}
+                      onClick={() => handleCandidateSelectOld(candidate)}
+                    >
+                      <img src={candidate.previewUrl} alt="ITS候補（旧）" />
+                      <span>
+                        h:{candidate.params.h_w.toFixed(0)} / s:{' '}
+                        {candidate.params.s_w.toFixed(2)} / v:{' '}
+                        {candidate.params.v_w.toFixed(2)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3>提案手法（改）</h3>
+                <div className="candidate-grid">
+                  {candidates.map((candidate) => (
+                    <button
+                      type="button"
+                      className="candidate-card"
+                      key={candidate.id}
+                      onClick={() => handleCandidateSelectNew(candidate)}
+                    >
+                      <img src={candidate.previewUrl} alt="ITS候補（改）" />
+                      <span>
+                        h:{candidate.params.h_w.toFixed(0)} / s:{' '}
+                        {candidate.params.s_w.toFixed(2)} / v:{' '}
+                        {candidate.params.v_w.toFixed(2)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </>
           ) : (
@@ -615,9 +707,12 @@ function App() {
                 className="reset-btn tune-again"
                 onClick={() => {
                   setPhase('tuning')
+                  setBestParamsOld(null)
                   setBestParams(null)
                   if (sourceImage) {
+                    const initialCandidatesOld = createInitialCandidatesOld(sourceImage)
                     const initialCandidates = createInitialCandidates(sourceImage)
+                    setCandidatesOld(initialCandidatesOld)
                     setCandidates(initialCandidates)
                     setGeneration(1)
                   }
